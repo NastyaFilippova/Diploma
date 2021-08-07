@@ -4,55 +4,62 @@ import requests
 
 from pprint import pprint
 
-token = '958eb5d439726565e9333aa30e50e0f937ee432e927f0dbd541c541887d919a7c56f95c04217915c32008'
+from config import TOKEN_VK
 
 class VKuser:
     url = "https://api.vk.com/method/"
-    version = '5.131'
 
-    def __init__(self, token, id):
+    def __init__(self, id, token=TOKEN_VK, version='5.131'):
         self.params = {'access_token': token,
-                        'id': id}
+                        'id': id,
+                       'v': version}
 
     def get_photos(self):
         get_photos_url = self.url + 'photos.get'
-        get_photos_params = {'v': self.version, 'owner_id': self.params['id'], 'album_id': 'profile', 'extended': 1,
+        get_photos_params = {'v': self.params['v'], 'owner_id': self.params['id'], 'album_id': 'profile', 'extended': 1,
                             'count': '5'}
         response = requests.get(get_photos_url, params={**self.params, **get_photos_params}).json()
         exp = response['response']['items']
-        for photos in exp:
-            photos['sizes'] = [max(photos['sizes'], key=lambda x: x['height'])]
         return exp
+
+    def get_max_size(self):
+        dates = self.get_photos()
+        for photos in dates:
+            photos['sizes'] = [max(photos['sizes'], key=lambda x: x['height'])]
+        return dates
+
+    def get_dates_for_work(self):
+        info = self.get_max_size()
+        file_dict = {}
+        for photos in info:
+            if photos['likes']['count'] in file_dict.keys():
+                file_dict.update({photos['date']: (el['type'], el['url']) for el in photos['sizes']})
+            else:
+                file_dict.update({photos['likes']['count']: (el['type'], el['url']) for el in photos['sizes']})
+        return file_dict
 
     def add_to_file(self):
         with open('file.json', 'w') as f:
-            info = self.get_photos()
-            file_dict = {}
-            for photos in info:
-                if photos['likes']['count'] in file_dict.keys():
-                    file_dict.update({photos['date']: str(el['type']) for el in photos['sizes']})
-                else:
-                    file_dict.update({photos['likes']['count']: str(el['type']) for el in photos['sizes']})
+            file_dict = self.get_dates_for_work()
             new_dict = {}
             for key, value in file_dict.items():
-                new_dict.update({'filename': f'{key}.png', 'size': value})
-                date_in_file = json.dump([new_dict], f, indent=2)
+                new_dict.update({'filename': f'{key}.png', 'size': value[0]})
+                json.dump([new_dict], f, indent=2)
+
+class YaUser():
+    def __init__(self, ya_token, id):
+        self.vk_dates = VKuser(id=id)
+        self.token = ya_token
 
     def headers(self):
-        return {"Accept": "application/json", "Authorization": "TOKEN"}
+        return {"Accept": "application/json", "Authorization": self.token}
 
     def upload(self):
         headers = self.headers()
-        info = self.get_photos()
-        file_dict = {}
-        for photos in info:
-            if photos["likes"]["count"] in file_dict.keys():
-                file_dict.update({photos["date"]: str(el["url"]) for el in photos["sizes"]})
-            else:
-                file_dict.update({photos["likes"]["count"]: str(el["url"]) for el in photos["sizes"]})
+        info = self.vk_dates.get_dates_for_work()
         new_dict = {}
-        for key, value in file_dict.items():
-            new_dict.update({"filename": f"{key}.png", "url": value})
+        for key, value in info.items():
+            new_dict.update({"filename": f"{key}.png", "url": value[1]})
             filename = new_dict["filename"]
             file_url = new_dict["url"]
             params = {"path": f"Test/{filename}", "url": file_url, "overwrite": False}
@@ -61,8 +68,13 @@ class VKuser:
             res = r.json()
         return res
 
-vk_client = VKuser(token, '552934290')
-pprint(vk_client.upload())
+if __name__ == '__main__':
+    vk_id = input('Введите id: ')
+    ya_token = input('Введите токен Яндекс.Диска: ')
+    vk_client = VKuser(vk_id)
+    ya_client = YaUser(ya_token, vk_id)
+    vk_client.add_to_file()
+    ya_client.upload()
 
 
 
